@@ -69,11 +69,29 @@ class Config(BaseModel):
     @classmethod
     def from_file(cls, path: Path) -> "Config":
         """从配置文件加载"""
-        content = path.read_text(encoding="utf-8")
-        data = yaml.safe_load(content)
+        try:
+            content = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            raise ValueError(f"配置文件不存在: {path}")
+        except UnicodeDecodeError as e:
+            raise ValueError(f"配置文件编码错误（应为 UTF-8）: {e}")
+        except OSError as e:
+            raise ValueError(f"无法读取配置文件: {e}")
+
+        try:
+            data = yaml.safe_load(content)
+        except yaml.YAMLError as e:
+            raise ValueError(f"配置文件 YAML 格式错误: {e}")
+
         if data is None:
             data = {}
-        return cls(**data)
+        elif not isinstance(data, dict):
+            raise ValueError("配置文件格式错误: 根元素必须是对象")
+
+        try:
+            return cls(**data)
+        except Exception as e:
+            raise ValueError(f"配置项验证失败: {e}")
 
     @classmethod
     def load(cls) -> "Config":

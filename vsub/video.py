@@ -3,6 +3,7 @@
 import json
 import shutil
 import subprocess
+from functools import lru_cache
 from pathlib import Path
 from typing import Optional
 
@@ -41,16 +42,18 @@ class VideoInfo:
         )
 
 
+@lru_cache(maxsize=1)
 def check_ffmpeg() -> Path:
-    """检查 FFmpeg 是否可用"""
+    """检查 FFmpeg 是否可用（带缓存）"""
     ffmpeg_path = shutil.which("ffmpeg")
     if not ffmpeg_path:
         raise RuntimeError("未找到 FFmpeg，请确保 FFmpeg 已安装并在 PATH 中")
     return Path(ffmpeg_path)
 
 
+@lru_cache(maxsize=1)
 def check_ffprobe() -> Path:
-    """检查 ffprobe 是否可用"""
+    """检查 ffprobe 是否可用（带缓存）"""
     ffprobe_path = shutil.which("ffprobe")
     if not ffprobe_path:
         raise RuntimeError("未找到 ffprobe，请确保 FFmpeg 已安装并在 PATH 中")
@@ -72,10 +75,28 @@ def probe_video(path: Path) -> VideoInfo:
 
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        raise RuntimeError(f"ffprobe 失败: {result.stderr}")
+        # 清理错误消息，移除敏感路径信息
+        error_msg = _sanitize_ffprobe_error(result.stderr)
+        raise RuntimeError(f"ffprobe 失败: {error_msg}")
 
-    data = json.loads(result.stdout)
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError as e:
+        raise RuntimeError(f"解析 ffprobe 输出失败: {e}")
+
     return parse_video_info(path, data)
+
+
+def _sanitize_ffprobe_error(error_msg: str) -> str:
+    """清理 ffprobe 错误消息中的敏感信息"""
+    lines = error_msg.split('\n')
+    sanitized = []
+    for line in lines[:3]:  # 只保留前3行
+        # 如果行太长，截断
+        if len(line) > 150:
+            line = line[:150] + "..."
+        sanitized.append(line)
+    return '\n'.join(sanitized)
 
 
 def parse_video_info(path: Path, data: dict) -> VideoInfo:
@@ -112,12 +133,16 @@ def parse_video_info(path: Path, data: dict) -> VideoInfo:
         height = video_stream.get("height", 0)
         video_codec = video_stream.get("codec_name")
 
-        # 解析帧率
+        # 解析帧率（使用 float 避免溢出）
         r_frame_rate = video_stream.get("r_frame_rate", "")
         if "/" in r_frame_rate:
-            num, den = r_frame_rate.split("/")
-            if int(den) > 0:
-                fps = int(num) / int(den)
+            try:
+                num, den = r_frame_rate.split("/")
+                den_val = float(den)
+                if den_val > 0:
+                    fps = float(num) / den_val
+            except (ValueError, ZeroDivisionError):
+                fps = 0.0
 
     # 获取音频信息
     audio_codec = None

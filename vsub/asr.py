@@ -382,18 +382,22 @@ class FunASREngine(AsrEngine):
                 timestamp = res.get("timestamp", [])
 
                 if timestamp and isinstance(timestamp, list):
-                    # 如果有时间戳信息
-                    for i, (start, end) in enumerate(timestamp):
-                        # 这里假设 timestamp 是 [(start, end), ...] 格式
-                        word_text = text[i] if i < len(text) else ""
-                        words.append(
-                            AsrWord(
-                                text=word_text,
-                                start=start / 1000.0,  # 转换为秒
-                                end=end / 1000.0,
-                                confidence=1.0,
+                    # 如果有时间戳信息，按时间戳分割文本
+                    # 假设 timestamp 是 [(start_ms, end_ms), ...] 格式
+                    # 每个时间戳对应一个词
+                    word_list = text.split() if text else []
+                    for i, ts in enumerate(timestamp):
+                        if isinstance(ts, (list, tuple)) and len(ts) >= 2:
+                            start_ms, end_ms = ts[0], ts[1]
+                            word_text = word_list[i] if i < len(word_list) else ""
+                            words.append(
+                                AsrWord(
+                                    text=word_text,
+                                    start=start_ms / 1000.0,  # 转换为秒
+                                    end=end_ms / 1000.0,
+                                    confidence=1.0,
+                                )
                             )
-                        )
                 else:
                     # 没有时间戳，整个文本作为一个片段
                     words.append(
@@ -490,13 +494,37 @@ def create_engine(
 
 
 def list_available_engines() -> List[str]:
-    """列出所有可用的引擎"""
+    """列出所有可用的引擎（使用静态方法检查，避免创建无效实例）"""
     available = []
-    for name, engine_class in ENGINE_REGISTRY.items():
-        try:
-            engine = engine_class()
-            if engine.is_available():
-                available.append(name)
-        except Exception:
-            pass
+
+    # 检查 Whisper（本地模型）
+    try:
+        import faster_whisper
+        available.append("whisper")
+    except ImportError:
+        pass
+
+    # 检查 OpenAI
+    try:
+        import openai
+        if os.getenv("OPENAI_API_KEY"):
+            available.append("openai")
+    except ImportError:
+        pass
+
+    # 检查 Azure
+    try:
+        import azure.cognitiveservices.speech
+        if os.getenv("AZURE_SPEECH_KEY"):
+            available.append("azure")
+    except ImportError:
+        pass
+
+    # 检查 FunASR
+    try:
+        import funasr
+        available.append("funasr")
+    except ImportError:
+        pass
+
     return available

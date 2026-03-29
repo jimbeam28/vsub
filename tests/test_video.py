@@ -57,6 +57,8 @@ class TestCheckFFmpeg:
 
     def test_check_ffmpeg_not_found(self):
         """测试未找到 ffmpeg"""
+        # 清除缓存，确保测试结果一致
+        check_ffmpeg.cache_clear()
         with patch("vsub.video.shutil.which") as mock_which:
             mock_which.return_value = None
             with pytest.raises(RuntimeError, match="未找到 FFmpeg"):
