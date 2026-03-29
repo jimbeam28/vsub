@@ -1,0 +1,39 @@
+# vsub default configuration
+# Copy this file to vsub.toml and customize as needed
+
+[asr]
+model = "medium"           # tiny/base/small/medium/large-v1/large-v2/large-v3
+language = "auto"          # auto or language code: zh, en, ja, etc.
+device = "auto"            # auto/cpu/cuda
+compute_type = "int8"      # int8/float16/float32
+beam_size = 5
+best_of = 5
+
+[audio]
+format = "wav"
+sample_rate = 16000
+channels = 1
+codec = "pcm_s16le"
+
+[subtitle]
+format = "srt"             # srt or vtt
+max_line_length = 40
+max_lines = 2
+min_duration = 1.0
+max_duration = 7.0
+split_long_sentences = true
+time_offset = 0.0
+
+[output]
+dir = "."
+suffix = "_subtitled"
+overwrite = false
+keep_temp = false
+
+[advanced]
+ffmpeg_path = ""
+python_path = ""
+model_cache_dir = "~/.cache/vsub/models"
+temp_dir = "/tmp"
+max_workers = 1
+timeout = 3600
