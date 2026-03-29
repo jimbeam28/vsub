@@ -23,6 +23,7 @@
 
 | 问题 | 文件 | 状态 |
 |------|------|------|
+| **严重问题** |
 | FFmpeg 进度显示死锁 | audio.py | ✅ 已修复 |
 | 进度解析异常 | audio.py | ✅ 已修复 |
 | 并发结果排序问题 | core.py | ✅ 已修复 |
@@ -32,6 +33,19 @@
 | API 密钥泄露 | asr.py | ✅ 已修复 |
 | 日志重复配置 | cli.py | ✅ 已修复 |
 | torch 重复导入 | device.py | ✅ 已修复 |
+| **高优先级问题** |
+| 缺少 --engine 选项 | cli.py | ✅ 已修复 |
+| 缺少 --device 选项 | cli.py | ✅ 已修复 |
+| 缺少 --max-workers 选项 | cli.py | ✅ 已修复 |
+| 单文件处理退出码 | cli.py | ✅ 已修复 |
+| init_config() 异常处理 | cli.py | ✅ 已修复 |
+| YAML 解析异常处理 | config.py | ✅ 已修复 |
+| 敏感信息泄露 | video.py | ✅ 已修复 |
+| JSON 解析异常处理 | video.py | ✅ 已修复 |
+| 帧率计算溢出 | video.py | ✅ 已修复 |
+| list_available_engines() | asr.py | ✅ 已修复 |
+| FunASR 时间戳处理 | asr.py | ✅ 已修复 |
+| FFmpeg 缓存 | video.py | ✅ 已修复 |
 
 ---
 
