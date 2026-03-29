@@ -1,4 +1,0 @@
-# Vsub Python ASR 引擎依赖
-# 安装: pip install -r requirements.txt
-
-faster-whisper>=0.10.0

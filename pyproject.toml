@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vsub"
+version = "0.2.0"
+description = "视频字幕生成工具 - 将视频导出音频，使用语音识别进行文字转录"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+keywords = ["subtitle", "video", "asr", "whisper", "srt", "vtt"]
+dependencies = [
+    "click>=8.0",
+    "faster-whisper>=0.10.0",
+    "pydantic>=2.0",
+    "pyyaml>=6.0",
+    "tqdm>=4.65",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "isort>=5.0",
+    "mypy>=1.0",
+]
+
+[project.scripts]
+vsub = "vsub.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/jimbeam28/vsub"
+Repository = "https://github.com/jimbeam28/vsub"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vsub*"]
+
+[tool.black]
+line-length = 100
+target-version = ['py38']
+
+[tool.isort]
+profile = "black"
+line_length = 100
