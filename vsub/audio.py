@@ -4,6 +4,8 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -52,7 +54,9 @@ class AudioExtractor:
         else:
             result = subprocess.run(cmd, capture_output=True, text=True)
             if result.returncode != 0:
-                raise RuntimeError(f"音频提取失败: {result.stderr}")
+                # 清理错误消息中的敏感信息
+                error_msg = self._sanitize_error(result.stderr)
+                raise RuntimeError(f"音频提取失败: {error_msg}")
 
         # 验证输出文件
         if not output_path.exists():
@@ -80,7 +84,7 @@ class AudioExtractor:
         return 0.0
 
     def _run_with_progress(self, cmd: list, duration: float) -> None:
-        """运行 FFmpeg 并显示进度"""
+        """运行 FFmpeg 并显示进度（修复死锁风险）"""
         process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -89,26 +93,63 @@ class AudioExtractor:
             bufsize=1,
         )
 
-        with tqdm(total=100, desc="提取音频", unit="%") as pbar:
-            last_percent = 0
-            while True:
-                line = process.stdout.readline()
-                if not line and process.poll() is not None:
-                    break
+        # 启动线程读取 stderr，避免管道填满导致死锁
+        stderr_lines = []
+        def read_stderr():
+            try:
+                for line in iter(process.stderr.readline, ''):
+                    stderr_lines.append(line)
+            except Exception:
+                pass
 
-                # 解析 out_time_us
-                if line.startswith("out_time_us="):
-                    time_us = int(line.strip().split("=")[1])
-                    current_time = time_us / 1_000_000  # 转换为秒
-                    percent = min(int(current_time / duration * 100), 100)
-                    if percent > last_percent:
-                        pbar.update(percent - last_percent)
-                        last_percent = percent
+        stderr_thread = threading.Thread(target=read_stderr)
+        stderr_thread.daemon = True
+        stderr_thread.start()
 
-        # 等待进程结束并检查返回值
-        stdout, stderr = process.communicate()
+        try:
+            with tqdm(total=100, desc="提取音频", unit="%") as pbar:
+                last_percent = 0
+                while True:
+                    line = process.stdout.readline()
+                    if not line and process.poll() is not None:
+                        break
+
+                    # 解析 out_time_us（添加异常处理）
+                    if line.startswith("out_time_us="):
+                        try:
+                            time_us_str = line.strip().split("=")[1]
+                            time_us = int(time_us_str)
+                            current_time = time_us / 1_000_000  # 转换为秒
+                            percent = min(int(current_time / duration * 100), 100)
+                            if percent > last_percent:
+                                pbar.update(percent - last_percent)
+                                last_percent = percent
+                        except (ValueError, IndexError):
+                            # 忽略解析失败的行
+                            continue
+        finally:
+            # 确保进程结束
+            process.wait()
+            stderr_thread.join(timeout=1.0)
+
+        # 检查返回值
         if process.returncode != 0:
-            raise RuntimeError(f"音频提取失败: {stderr}")
+            stderr_content = ''.join(stderr_lines)
+            error_msg = self._sanitize_error(stderr_content)
+            raise RuntimeError(f"音频提取失败: {error_msg}")
+
+    @staticmethod
+    def _sanitize_error(error_msg: str) -> str:
+        """清理错误消息中的敏感信息"""
+        # 移除可能的文件路径
+        lines = error_msg.split('\n')
+        sanitized = []
+        for line in lines:
+            # 保留错误描述，但移除过长的路径信息
+            if len(line) > 200:
+                line = line[:200] + "..."
+            sanitized.append(line)
+        return '\n'.join(sanitized[:5])  # 只保留前5行
 
     def get_audio_duration(self, audio_path: Path) -> float:
         """获取音频时长（秒）"""
@@ -149,17 +190,11 @@ def parse_duration(time_str: str) -> float:
 
 
 def temp_audio_path(video_path: Path) -> Path:
-    """生成临时音频文件路径"""
+    """生成临时音频文件路径（使用 UUID 避免冲突）"""
     stem = video_path.stem
     temp_dir = Path(tempfile.gettempdir())
-    return temp_dir / f"{stem}_{temp_file_id()}.wav"
-
-
-def temp_file_id() -> str:
-    """生成临时文件 ID"""
-    import random
-    import string
-    return "".join(random.choices(string.ascii_lowercase + string.digits, k=8))
+    unique_id = str(uuid.uuid4())[:8]
+    return temp_dir / f"{stem}_{unique_id}.wav"
 
 
 def cleanup_audio(path: Path) -> None:

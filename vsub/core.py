@@ -141,6 +141,14 @@ def process_videos(
     if not inputs:
         return []
 
+    # 检查重复路径
+    path_counts = {}
+    for p in inputs:
+        path_counts[p] = path_counts.get(p, 0) + 1
+    duplicates = [p for p, count in path_counts.items() if count > 1]
+    if duplicates:
+        logger.warning(f"检测到重复输入路径: {duplicates}")
+
     # 如果只有一个文件，直接处理，不使用并发
     if len(inputs) == 1:
         try:
@@ -165,40 +173,51 @@ def process_videos(
 
     logger.info(f"并发数: {max_workers}")
 
-    results: List[Tuple[Path, Optional[Path]]] = []
+    # 使用 OrderedDict 保持插入顺序并处理重复
+    from collections import OrderedDict
+    results_map: OrderedDict[Path, Optional[Path]] = OrderedDict()
     completed = 0
+    failed_count = 0
 
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # 提交所有任务
-        future_to_path = {
-            executor.submit(
-                _process_video_wrapper,
-                input_path,
-                config,
-                device,
-            ): input_path
-            for input_path in inputs
-        }
+    try:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交所有任务，保留原始顺序信息
+            future_to_index = {
+                executor.submit(
+                    _process_video_wrapper,
+                    input_path,
+                    config,
+                    device,
+                ): (idx, input_path)
+                for idx, input_path in enumerate(inputs)
+            }
 
-        # 使用进度条显示总体进度
-        with tqdm(total=len(inputs), desc="批量处理", unit="文件") as pbar:
-            for future in as_completed(future_to_path):
-                input_path = future_to_path[future]
-                try:
-                    output_path = future.result()
-                    results.append((input_path, output_path))
-                    logger.info(f"✓ 完成: {input_path.name}")
-                except Exception as e:
-                    logger.error(f"✗ 处理失败 {input_path.name}: {e}")
-                    results.append((input_path, None))
+            # 使用进度条显示总体进度
+            with tqdm(total=len(inputs), desc="批量处理", unit="文件") as pbar:
+                for future in as_completed(future_to_index):
+                    idx, input_path = future_to_index[future]
+                    try:
+                        output_path = future.result()
+                        results_map[input_path] = output_path
+                        logger.info(f"✓ 完成: {input_path.name}")
+                    except Exception as e:
+                        failed_count += 1
+                        logger.error(f"✗ 处理失败 {input_path.name}: {e}")
+                        results_map[input_path] = None
 
-                completed += 1
-                pbar.update(1)
-                pbar.set_postfix({"完成": f"{completed}/{len(inputs)}"})
+                    completed += 1
+                    pbar.update(1)
+                    pbar.set_postfix({
+                        "完成": f"{completed}/{len(inputs)}",
+                        "成功": completed - failed_count,
+                        "失败": failed_count
+                    })
+    except Exception as e:
+        logger.error(f"批量处理异常: {e}")
+        raise
 
-    # 按输入顺序排序结果
-    path_to_output = {inp: out for inp, out in results}
-    return [(inp, path_to_output.get(inp)) for inp in inputs]
+    # 按原始输入顺序返回结果（处理重复路径）
+    return [(inp, results_map.get(inp)) for inp in inputs]
 
 
 def _process_video_wrapper(

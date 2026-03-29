@@ -91,14 +91,16 @@ class Config(BaseModel):
         return config
 
     def merge(self, other: "Config") -> "Config":
-        """合并另一个配置，其他配置的非默认值覆盖当前配置"""
+        """合并另一个配置，other 中显式设置且非 None 的字段覆盖当前配置"""
+        # 获取 self 的数据
         data = self.model_dump()
-        other_data = other.model_dump()
 
-        # 只覆盖非默认值
-        defaults = Config().model_dump()
-        for key, value in other_data.items():
-            if value != defaults[key]:
+        # 获取 other 中显式设置的字段
+        other_data = other.model_dump()
+        for key in other.model_fields_set:
+            value = other_data[key]
+            # 只合并非 None 的值
+            if value is not None:
                 data[key] = value
 
         return Config(**data)

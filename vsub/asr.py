@@ -223,6 +223,9 @@ class OpenAIWhisperEngine(AsrEngine):
 
         return words
 
+    def __repr__(self) -> str:
+        return f"OpenAIWhisperEngine(api_key='***', model={self.model!r})"
+
     def is_available(self) -> bool:
         """检查引擎是否可用"""
         try:
@@ -310,6 +313,9 @@ class AzureASREngine(AsrEngine):
             raise RuntimeError(f"Azure Speech 取消: {cancellation.error_details}")
 
         return words
+
+    def __repr__(self) -> str:
+        return f"AzureASREngine(subscription_key='***', region={self.region!r})"
 
     def is_available(self) -> bool:
         """检查引擎是否可用"""
@@ -433,12 +439,18 @@ def create_engine(
 
     Args:
         engine_type: 引擎类型 (whisper/openai/azure/funasr)
-        model: 模型名称
-        device: 计算设备
+        model: 模型名称（whisper/funasr 使用）
+        device: 计算设备（whisper/funasr 使用）
         **kwargs: 其他引擎特定参数
+            - api_key: OpenAI API 密钥
+            - subscription_key: Azure Speech 密钥
+            - region: Azure Speech 区域
 
     Returns:
         ASR 引擎实例
+
+    Raises:
+        ValueError: 引擎类型未知或参数无效
     """
     engine_type = engine_type.lower()
 
@@ -450,17 +462,29 @@ def create_engine(
 
     engine_class = ENGINE_REGISTRY[engine_type]
 
-    if engine_type == "whisper":
-        return engine_class(model=model, device=device)
-    elif engine_type == "openai":
-        return engine_class(api_key=kwargs.get("api_key"), model=model)
-    elif engine_type == "azure":
-        return engine_class(
-            subscription_key=kwargs.get("subscription_key"),
-            region=kwargs.get("region"),
-        )
-    elif engine_type == "funasr":
-        return engine_class(model=model, device=device)
+    # 验证和清理 kwargs
+    allowed_kwargs = {"api_key", "subscription_key", "region"}
+    extra_kwargs = set(kwargs.keys()) - allowed_kwargs
+    if extra_kwargs:
+        raise ValueError(f"未知的参数: {extra_kwargs}")
+
+    try:
+        if engine_type == "whisper":
+            return engine_class(model=model, device=device)
+        elif engine_type == "openai":
+            # OpenAI 使用 whisper-1 模型，不接受其他模型名称
+            openai_model = model if model in ["whisper-1"] else "whisper-1"
+            return engine_class(api_key=kwargs.get("api_key"), model=openai_model)
+        elif engine_type == "azure":
+            # Azure 不使用 model 和 device 参数
+            return engine_class(
+                subscription_key=kwargs.get("subscription_key"),
+                region=kwargs.get("region"),
+            )
+        elif engine_type == "funasr":
+            return engine_class(model=model, device=device)
+    except Exception as e:
+        raise RuntimeError(f"创建引擎 {engine_type} 失败: {e}")
 
     raise ValueError(f"未实现的引擎类型: {engine_type}")
 

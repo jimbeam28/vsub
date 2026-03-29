@@ -9,6 +9,19 @@ import click
 from vsub.config import Config, OutputFormat, WhisperModel
 from vsub.core import process_video, process_videos
 
+# 模块级变量，确保日志只配置一次
+_logger_configured = False
+
+
+def _configure_logging(verbose: bool) -> None:
+    """配置日志（线程安全，只执行一次）"""
+    global _logger_configured
+    if not _logger_configured:
+        level = logging.DEBUG if verbose else logging.INFO
+        format_str = "%(levelname)s: %(message)s" if verbose else "%(message)s"
+        logging.basicConfig(level=level, format=format_str)
+        _logger_configured = True
+
 
 @click.command()
 @click.argument("input", nargs=-1, required=False, type=click.Path(exists=True, path_type=Path))
@@ -56,11 +69,8 @@ def cli(
         vsub input.mp4 -o output.srt      # 指定输出文件
         vsub *.mp4                        # 批量处理
     """
-    # 设置日志级别
-    if verbose:
-        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
-    else:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
+    # 设置日志级别（只配置一次）
+    _configure_logging(verbose)
 
     # 处理 --init 命令
     if init:

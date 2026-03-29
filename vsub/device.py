@@ -6,6 +6,14 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# 模块级别导入 torch，避免重复导入
+try:
+    import torch
+    TORCH_AVAILABLE = True
+except ImportError:
+    torch = None
+    TORCH_AVAILABLE = False
+
 
 class DeviceType(str, Enum):
     """设备类型"""
@@ -16,19 +24,21 @@ class DeviceType(str, Enum):
 
 def check_cuda_available() -> bool:
     """检查 CUDA 是否可用"""
+    if not TORCH_AVAILABLE:
+        return False
     try:
-        import torch
         return torch.cuda.is_available()
-    except ImportError:
+    except Exception:
         return False
 
 
 def check_mps_available() -> bool:
     """检查 MPS (Metal Performance Shaders) 是否可用"""
+    if not TORCH_AVAILABLE:
+        return False
     try:
-        import torch
         return torch.backends.mps.is_available()
-    except (ImportError, AttributeError):
+    except (AttributeError, Exception):
         return False
 
 
@@ -47,10 +57,8 @@ def get_device(prefer_gpu: bool = True) -> str:
         return DeviceType.CPU
 
     # 检查 CUDA
-    if check_cuda_available():
+    if check_cuda_available() and TORCH_AVAILABLE:
         try:
-            import torch
-
             device_name = torch.cuda.get_device_name(0)
             logger.info(f"检测到 CUDA 设备: {device_name}")
             return DeviceType.CUDA
@@ -74,30 +82,29 @@ def get_device_info() -> dict:
         "cuda_devices": 0,
         "cuda_device_name": None,
         "mps": False,
-        "recommended": DeviceType.CPU,
+        "recommended": DeviceType.CPU.value,
     }
+
+    if not TORCH_AVAILABLE:
+        return info
 
     # 检查 CUDA
     try:
-        import torch
-
         if torch.cuda.is_available():
             info["cuda"] = True
             info["cuda_devices"] = torch.cuda.device_count()
             info["cuda_device_name"] = torch.cuda.get_device_name(0)
-            info["recommended"] = DeviceType.CUDA
-    except ImportError:
+            info["recommended"] = DeviceType.CUDA.value
+    except Exception:
         pass
 
     # 检查 MPS
     try:
-        import torch
-
         if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             info["mps"] = True
-            if info["recommended"] == DeviceType.CPU:
-                info["recommended"] = DeviceType.MPS
-    except (ImportError, AttributeError):
+            if info["recommended"] == DeviceType.CPU.value:
+                info["recommended"] = DeviceType.MPS.value
+    except Exception:
         pass
 
     return info
@@ -109,20 +116,20 @@ def format_device_info(info: Optional[dict] = None) -> str:
         info = get_device_info()
 
     lines = ["设备信息:"]
-    lines.append(f"  CPU: 可用")
+    lines.append("  CPU: 可用")
 
-    if info["cuda"]:
-        lines.append(f"  CUDA: 可用")
-        lines.append(f"  CUDA 设备: {info['cuda_device_name']}")
-        lines.append(f"  CUDA 数量: {info['cuda_devices']}")
+    if info.get("cuda"):
+        lines.append("  CUDA: 可用")
+        lines.append(f"  CUDA 设备: {info.get('cuda_device_name', '未知')}")
+        lines.append(f"  CUDA 数量: {info.get('cuda_devices', 0)}")
     else:
-        lines.append(f"  CUDA: 不可用")
+        lines.append("  CUDA: 不可用")
 
-    if info["mps"]:
-        lines.append(f"  MPS (Apple Silicon): 可用")
+    if info.get("mps"):
+        lines.append("  MPS (Apple Silicon): 可用")
     else:
-        lines.append(f"  MPS (Apple Silicon): 不可用")
+        lines.append("  MPS (Apple Silicon): 不可用")
 
-    lines.append(f"  推荐设备: {info['recommended'].value}")
+    lines.append(f"  推荐设备: {info.get('recommended', 'cpu')}")
 
     return "\n".join(lines)
