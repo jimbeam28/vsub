@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class OutputFormat(str, Enum):
@@ -58,13 +58,24 @@ class Config(BaseModel):
     output_dir: Optional[Path] = Field(default=None, description="输出目录")
 
     # 最大行长度
-    max_line_length: int = Field(default=80, description="字幕最大行长度")
+    max_line_length: int = Field(default=80, description="字幕最大行长度", ge=1, le=200)
 
     # 每行最大单词数
-    max_line_count: int = Field(default=2, description="字幕每行最大单词数")
+    max_line_count: int = Field(default=2, description="字幕每行最大单词数", ge=1, le=5)
 
     # 批量处理并发数
-    max_workers: Optional[int] = Field(default=None, description="批量处理并发数，None 表示自动")
+    max_workers: Optional[int] = Field(default=None, description="批量处理并发数，None 表示自动", ge=1, le=16)
+
+    @field_validator("language")
+    @classmethod
+    def validate_language(cls, v: Optional[str]) -> Optional[str]:
+        """验证语言代码格式"""
+        if v is None:
+            return v
+        v = v.lower().strip()
+        if len(v) != 2:
+            raise ValueError(f"语言代码必须是2个字母: {v}")
+        return v
 
     @classmethod
     def from_file(cls, path: Path) -> "Config":

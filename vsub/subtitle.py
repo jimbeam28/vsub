@@ -27,22 +27,23 @@ class SubtitleSegment:
         return f"SubtitleSegment({self.index}, {self.start:.2f}-{self.end:.2f}, {self.text!r})"
 
     @staticmethod
-    def format_time_srt(seconds: float) -> str:
-        """格式化时间戳为 SRT 格式 (HH:MM:SS,mmm)"""
+    def format_time(seconds: float, separator: str = ",") -> str:
+        """格式化时间戳为 SRT/VTT 格式 (HH:MM:SS{separator}mmm)"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         millis = int((seconds % 1) * 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}"
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}{separator}{millis:03d}"
+
+    @staticmethod
+    def format_time_srt(seconds: float) -> str:
+        """格式化时间戳为 SRT 格式 (HH:MM:SS,mmm)"""
+        return SubtitleSegment.format_time(seconds, separator=",")
 
     @staticmethod
     def format_time_vtt(seconds: float) -> str:
         """格式化时间戳为 VTT 格式 (HH:MM:SS.mmm)"""
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
-        millis = int((seconds % 1) * 1000)
-        return f"{hours:02d}:{minutes:02d}:{secs:02d}.{millis:03d}"
+        return SubtitleSegment.format_time(seconds, separator=".")
 
 
 class SubtitleGenerator:
@@ -150,25 +151,30 @@ def segments_from_asr_result(
     segment_start = 0.0
     char_count = 0
 
-    # 句子结束标点
-    sentence_end = re.compile(r"[.!?。！？]$")
+    # 句子结束标点（修复：检测单词末尾包含标点）
+    sentence_end = re.compile(r"[.!?。！？]")
 
     for i, word in enumerate(words):
         if not current_words:
             segment_start = word.start
 
         current_words.append(word)
+        # 修复：字符计数考虑空格
         char_count += len(word.text)
+        if current_words:  # 不是第一个单词，添加空格
+            char_count += 1
 
         current_duration = word.end - segment_start
         is_last = i == len(words) - 1
 
         # 检查是否需要分割
+        # 修复：检测单词末尾是否包含句子结束标点
+        has_end_punctuation = bool(sentence_end.search(word.text)) if word.text else False
         should_split = (
             is_last
             or current_duration >= max_duration
             or char_count >= max_chars
-            or sentence_end.search(word.text)
+            or has_end_punctuation
         )
 
         if should_split and current_words:

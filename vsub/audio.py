@@ -182,9 +182,20 @@ def parse_duration(time_str: str) -> float:
     if len(parts) != 3:
         raise ValueError(f"无效的时长格式: {time_str}")
 
-    hours = float(parts[0])
-    minutes = float(parts[1])
-    seconds = float(parts[2])
+    try:
+        hours = float(parts[0])
+        minutes = float(parts[1])
+        seconds = float(parts[2])
+    except ValueError as e:
+        raise ValueError(f"无效的时间值: {time_str}") from e
+
+    # 验证时间范围
+    if not (0 <= hours < 100):  # 最多99小时
+        raise ValueError(f"小时数超出范围: {hours}")
+    if not (0 <= minutes < 60):
+        raise ValueError(f"分钟数超出范围: {minutes}")
+    if not (0 <= seconds < 60):
+        raise ValueError(f"秒数超出范围: {seconds}")
 
     return hours * 3600.0 + minutes * 60.0 + seconds
 
