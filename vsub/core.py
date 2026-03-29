@@ -1,22 +1,39 @@
 """核心处理模块"""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from tqdm import tqdm
 
-from vsub.asr import AsrWord, create_engine
+from vsub.asr import AsrWord, create_engine, ENGINE_REGISTRY
 from vsub.audio import AudioExtractor, cleanup_audio, temp_audio_path
 from vsub.config import Config, OutputFormat
+from vsub.device import get_device
 from vsub.subtitle import SubtitleGenerator, SubtitleSegment, segments_from_asr_result
 from vsub.video import probe_video, validate_video
 
 logger = logging.getLogger(__name__)
 
 
-def process_video(input_path: Path, config: Config) -> Path:
-    """处理单个视频文件"""
+def process_video(
+    input_path: Path,
+    config: Config,
+    device: Optional[str] = None,
+    show_progress: bool = True,
+) -> Path:
+    """处理单个视频文件
+
+    Args:
+        input_path: 输入视频路径
+        config: 配置对象
+        device: 计算设备 (cuda/mps/cpu)，None 则自动检测
+        show_progress: 是否显示进度条
+
+    Returns:
+        输出字幕文件路径
+    """
     logger.info(f"开始处理: {input_path}")
 
     # 1. 验证视频
@@ -33,19 +50,41 @@ def process_video(input_path: Path, config: Config) -> Path:
     extractor = AudioExtractor()
     temp_audio = temp_audio_path(input_path)
     try:
-        extractor.extract_to_wav(input_path, temp_audio)
+        extractor.extract_to_wav(input_path, temp_audio, show_progress=show_progress)
         logger.debug(f"音频已提取到: {temp_audio}")
 
-        # 3. ASR 识别（带进度条）
+        # 3. ASR 识别（带真实进度条）
         logger.info("启动 ASR 识别...")
-        engine = create_engine(model=config.model.value, device="cpu")
+
+        # 自动检测设备
+        if device is None:
+            device = get_device(prefer_gpu=True)
+        logger.info(f"使用设备: {device}")
+
+        engine = create_engine(
+            engine_type=config.engine.value,
+            model=config.model.value,
+            device=device,
+        )
         if not engine.is_available():
             raise RuntimeError("ASR 引擎不可用，请安装 faster-whisper")
 
-        # 使用 tqdm 显示进度
-        with tqdm(total=100, desc="语音识别", unit="%") as pbar:
+        # 使用 tqdm 显示真实进度
+        if show_progress:
+            with tqdm(total=100, desc="语音识别", unit="%") as pbar:
+                def update_progress(progress: float):
+                    pbar.n = int(progress * 100)
+                    pbar.refresh()
+
+                words = engine.transcribe(
+                    temp_audio,
+                    language=config.language,
+                    progress_callback=update_progress
+                )
+                pbar.n = 100
+                pbar.refresh()
+        else:
             words = engine.transcribe(temp_audio, language=config.language)
-            pbar.update(100)
 
         logger.info(f"识别完成: {len(words)} 个单词")
 
@@ -82,19 +121,98 @@ def process_video(input_path: Path, config: Config) -> Path:
             cleanup_audio(temp_audio)
 
 
-def process_videos(inputs: List[Path], config: Config) -> List[Tuple[Path, Path]]:
-    """处理多个视频文件"""
-    results = []
-    for i, input_path in enumerate(inputs, 1):
-        logger.info(f"\n[{i}/{len(inputs)}] 处理 {input_path.name}...")
+def process_videos(
+    inputs: List[Path],
+    config: Config,
+    max_workers: Optional[int] = None,
+    device: Optional[str] = None,
+) -> List[Tuple[Path, Optional[Path]]]:
+    """处理多个视频文件
+
+    Args:
+        inputs: 输入视频路径列表
+        config: 配置对象
+        max_workers: 最大并发数，None 则根据 CPU 核心数自动选择
+        device: 计算设备，None 则自动检测
+
+    Returns:
+        结果列表，每个元素为 (输入路径, 输出路径)，失败时输出路径为 None
+    """
+    if not inputs:
+        return []
+
+    # 如果只有一个文件，直接处理，不使用并发
+    if len(inputs) == 1:
         try:
-            output_path = process_video(input_path, config)
-            results.append((input_path, output_path))
+            output_path = process_video(inputs[0], config, device=device)
+            return [(inputs[0], output_path)]
         except Exception as e:
             logger.error(f"✗ 处理失败: {e}")
-            results.append((input_path, None))
+            return [(inputs[0], None)]
 
-    return results
+    # 自动检测设备（只检测一次）
+    if device is None:
+        device = get_device(prefer_gpu=True)
+    logger.info(f"批量处理使用设备: {device}")
+
+    # 确定并发数
+    if max_workers is None:
+        if config.max_workers is not None:
+            max_workers = config.max_workers
+        else:
+            import os
+            max_workers = min(os.cpu_count() or 1, 4)  # 默认最多4个并发
+
+    logger.info(f"并发数: {max_workers}")
+
+    results: List[Tuple[Path, Optional[Path]]] = []
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # 提交所有任务
+        future_to_path = {
+            executor.submit(
+                _process_video_wrapper,
+                input_path,
+                config,
+                device,
+            ): input_path
+            for input_path in inputs
+        }
+
+        # 使用进度条显示总体进度
+        with tqdm(total=len(inputs), desc="批量处理", unit="文件") as pbar:
+            for future in as_completed(future_to_path):
+                input_path = future_to_path[future]
+                try:
+                    output_path = future.result()
+                    results.append((input_path, output_path))
+                    logger.info(f"✓ 完成: {input_path.name}")
+                except Exception as e:
+                    logger.error(f"✗ 处理失败 {input_path.name}: {e}")
+                    results.append((input_path, None))
+
+                completed += 1
+                pbar.update(1)
+                pbar.set_postfix({"完成": f"{completed}/{len(inputs)}"})
+
+    # 按输入顺序排序结果
+    path_to_output = {inp: out for inp, out in results}
+    return [(inp, path_to_output.get(inp)) for inp in inputs]
+
+
+def _process_video_wrapper(
+    input_path: Path,
+    config: Config,
+    device: str,
+) -> Optional[Path]:
+    """处理视频的包装器，用于捕获日志"""
+    try:
+        # 在子线程中禁用进度条，避免显示混乱
+        return process_video(input_path, config, device=device, show_progress=False)
+    except Exception as e:
+        logger.error(f"处理 {input_path.name} 时出错: {e}")
+        raise
 
 
 def determine_output_path(input_path: Path, config: Config) -> Path:

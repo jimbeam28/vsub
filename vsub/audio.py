@@ -1,10 +1,13 @@
 """音频处理模块"""
 
+import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+from tqdm import tqdm
 
 
 class AudioExtractor:
@@ -21,11 +24,16 @@ class AudioExtractor:
             raise RuntimeError("未找到 FFmpeg")
         return Path(ffmpeg_path)
 
-    def extract_to_wav(self, video_path: Path, output_path: Path) -> None:
+    def extract_to_wav(
+        self, video_path: Path, output_path: Path, show_progress: bool = True
+    ) -> None:
         """提取音频为 WAV 格式（PCM 16-bit, 16kHz, mono）"""
         # 如果输出文件已存在，先删除
         if output_path.exists():
             output_path.unlink()
+
+        # 获取视频时长
+        duration = self._get_video_duration(video_path)
 
         cmd = [
             str(self.ffmpeg_path),
@@ -35,12 +43,16 @@ class AudioExtractor:
             "-acodec", "pcm_s16le",  # PCM 16-bit 小端
             "-ar", "16000",  # 16kHz 采样率
             "-ac", "1",  # 单声道
+            "-progress", "pipe:1",  # 输出进度到 stdout
             str(output_path),
         ]
 
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            raise RuntimeError(f"音频提取失败: {result.stderr}")
+        if show_progress and duration > 0:
+            self._run_with_progress(cmd, duration)
+        else:
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise RuntimeError(f"音频提取失败: {result.stderr}")
 
         # 验证输出文件
         if not output_path.exists():
@@ -48,6 +60,55 @@ class AudioExtractor:
 
         if output_path.stat().st_size == 0:
             raise RuntimeError("输出文件为空")
+
+    def _get_video_duration(self, video_path: Path) -> float:
+        """获取视频时长（秒）"""
+        cmd = [
+            str(self.ffmpeg_path),
+            "-i", str(video_path),
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        # FFmpeg 输出到 stderr
+        for line in result.stderr.split("\n"):
+            if "Duration: " in line:
+                match = re.search(r"Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})", line)
+                if match:
+                    hours = int(match.group(1))
+                    minutes = int(match.group(2))
+                    seconds = float(match.group(3))
+                    return hours * 3600 + minutes * 60 + seconds
+        return 0.0
+
+    def _run_with_progress(self, cmd: list, duration: float) -> None:
+        """运行 FFmpeg 并显示进度"""
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+
+        with tqdm(total=100, desc="提取音频", unit="%") as pbar:
+            last_percent = 0
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+
+                # 解析 out_time_us
+                if line.startswith("out_time_us="):
+                    time_us = int(line.strip().split("=")[1])
+                    current_time = time_us / 1_000_000  # 转换为秒
+                    percent = min(int(current_time / duration * 100), 100)
+                    if percent > last_percent:
+                        pbar.update(percent - last_percent)
+                        last_percent = percent
+
+        # 等待进程结束并检查返回值
+        stdout, stderr = process.communicate()
+        if process.returncode != 0:
+            raise RuntimeError(f"音频提取失败: {stderr}")
 
     def get_audio_duration(self, audio_path: Path) -> float:
         """获取音频时长（秒）"""

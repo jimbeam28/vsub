@@ -25,11 +25,22 @@ class WhisperModel(str, Enum):
     LARGE_V3 = "large-v3"
 
 
+class AsrEngineType(str, Enum):
+    """ASR 引擎类型"""
+    WHISPER = "whisper"
+    OPENAI = "openai"
+    AZURE = "azure"
+    FUNASR = "funasr"
+
+
 class Config(BaseModel):
     """应用程序配置"""
 
     # 输出格式
     format: OutputFormat = Field(default=OutputFormat.SRT, description="输出字幕格式")
+
+    # ASR 引擎类型
+    engine: AsrEngineType = Field(default=AsrEngineType.WHISPER, description="ASR 引擎类型")
 
     # ASR 模型
     model: WhisperModel = Field(default=WhisperModel.BASE, description="Whisper 模型大小")
@@ -51,6 +62,9 @@ class Config(BaseModel):
 
     # 每行最大单词数
     max_line_count: int = Field(default=2, description="字幕每行最大单词数")
+
+    # 批量处理并发数
+    max_workers: Optional[int] = Field(default=None, description="批量处理并发数，None 表示自动")
 
     @classmethod
     def from_file(cls, path: Path) -> "Config":
@@ -114,6 +128,9 @@ class Config(BaseModel):
 # 输出格式: srt 或 vtt
 format: srt
 
+# ASR 引擎: whisper, openai, azure, funasr
+engine: whisper
+
 # Whisper 模型: tiny, base, small, medium, large, large-v2, large-v3
 model: base
 
@@ -134,4 +151,7 @@ max_line_length: 80
 
 # 字幕每行最大单词数
 max_line_count: 2
+
+# 批量处理并发数 (留空为自动)
+# max_workers: 4
 """

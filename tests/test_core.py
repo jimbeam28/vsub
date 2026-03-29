@@ -231,7 +231,7 @@ class TestProcessVideos:
         video1.write_text("dummy")
         video2.write_text("dummy")
 
-        def side_effect(path, config):
+        def side_effect(path, config, device=None, show_progress=True):
             if "video1" in str(path):
                 return tmp_path / "video1.srt"
             raise RuntimeError("失败")
