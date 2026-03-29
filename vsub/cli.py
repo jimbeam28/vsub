@@ -1,11 +1,12 @@
 """CLI 模块"""
 
+import logging
 import sys
 from pathlib import Path
 
 import click
 
-from vsub.config import Config
+from vsub.config import Config, OutputFormat, WhisperModel
 from vsub.core import process_video, process_videos
 
 
@@ -55,6 +56,12 @@ def cli(
         vsub input.mp4 -o output.srt      # 指定输出文件
         vsub *.mp4                        # 批量处理
     """
+    # 设置日志级别
+    if verbose:
+        logging.basicConfig(level=logging.DEBUG, format="%(levelname)s: %(message)s")
+    else:
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+
     # 处理 --init 命令
     if init:
         return init_config()
@@ -76,9 +83,9 @@ def cli(
 
     # 应用命令行参数覆盖
     if format:
-        config.format = format.lower()
+        config.format = OutputFormat(format.lower())
     if model:
-        config.model = model.lower()
+        config.model = WhisperModel(model.lower())
     if language:
         config.language = language
     if keep_audio:

@@ -87,31 +87,42 @@ class SubtitleGenerator:
     def _wrap_text(self, text: str) -> str:
         """文本自动换行"""
         words = text.split()
+        if not words:
+            return ""
+
         lines = []
         current_line = []
         current_length = 0
 
         for word in words:
             word_len = len(word)
-            if current_line and current_length + 1 + word_len > self.max_line_length:
+            # 检查当前行加上这个单词是否超过最大长度
+            new_length = current_length + (1 if current_line else 0) + word_len
+
+            if current_line and new_length > self.max_line_length:
+                # 当前行已满，保存并开始新行
                 lines.append(" ".join(current_line))
                 current_line = [word]
                 current_length = word_len
-
-                if len(lines) >= self.max_line_count:
-                    # 达到最大行数，剩余词作为新行
-                    continue
             else:
-                if current_line:
-                    current_length += 1 + word_len
-                else:
-                    current_length = word_len
+                # 添加到当前行
                 current_line.append(word)
+                current_length = new_length
 
+            # 检查是否达到最大行数限制
+            if len(lines) >= self.max_line_count:
+                # 保存当前行，清空以继续处理剩余单词
+                if current_line:
+                    lines.append(" ".join(current_line))
+                    current_line = []
+                    current_length = 0
+                break
+
+        # 添加最后一行
         if current_line:
             lines.append(" ".join(current_line))
 
-        return "\n".join(lines)
+        return "\n".join(lines[:self.max_line_count])
 
     def write_to_file(
         self,

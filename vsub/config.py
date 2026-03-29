@@ -57,6 +57,8 @@ class Config(BaseModel):
         """从配置文件加载"""
         content = path.read_text(encoding="utf-8")
         data = yaml.safe_load(content)
+        if data is None:
+            data = {}
         return cls(**data)
 
     @classmethod
